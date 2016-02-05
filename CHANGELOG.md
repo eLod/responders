@@ -1,3 +1,10 @@
+## HEAD
+
+* Added the `strict: true` option for the `respond_to` macro, which prevents
+  your actions from being invoked when the controller does not respond to the
+  request mime type, preventing the execution of complex queries or creating/deleting
+  records from your app.
+
 ## 2.1.1
 
 * Added support for Rails 5.

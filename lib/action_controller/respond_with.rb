@@ -34,20 +34,38 @@ module ActionController #:nodoc:
       #
       # This specifies that the <tt>:create</tt> action and no other responds
       # to <tt>:json</tt>.
+      #
+      # Requests that do not match the mime types defined with <tt>respond_to</tt>
+      # will be executed normally and might raise an
+      # <tt>ActionController::UnknownFormat</tt> if the action invokes the
+      # <tt>respond_with</tt> method. To prevent the action from being executed
+      # use the <tt>:strict</tt> option.
+      #
+      #   respond_to :json, strict: true
+      #
+      # <tt>:strict</tt> will install a <tt>before_action</tt> callback to raise
+      # the <tt>ActionController::UnknownFormat</tt> if the action does not
+      # responds to the request mime type.
       def respond_to(*mimes)
         options = mimes.extract_options!
 
         only_actions   = Array(options.delete(:only)).map(&:to_s)
         except_actions = Array(options.delete(:except)).map(&:to_s)
 
-        new = mimes_for_respond_to.dup
+        hash = mimes_for_respond_to.dup
         mimes.each do |mime|
           mime = mime.to_sym
-          new[mime]          = {}
-          new[mime][:only]   = only_actions   unless only_actions.empty?
-          new[mime][:except] = except_actions unless except_actions.empty?
+          hash[mime]          = {}
+          hash[mime][:only]   = only_actions   unless only_actions.empty?
+          hash[mime][:except] = except_actions unless except_actions.empty?
         end
-        self.mimes_for_respond_to = new.freeze
+        self.mimes_for_respond_to = hash.freeze
+
+        if options[:strict]
+          prepend_before_action :only => only_actions.presence, :except => except_actions.presence do |controller|
+            controller.validate_request_format!
+          end
+        end
       end
 
       # Clear all mime types in <tt>respond_to</tt>.
@@ -193,7 +211,7 @@ module ActionController #:nodoc:
           "formats your controller responds to in the class level."
       end
 
-      mimes = collect_mimes_from_class_level()
+      mimes = collect_mimes_from_class_level
       collector = ActionController::MimeResponds::Collector.new(mimes, request.variant)
       block.call(collector) if block_given?
 
@@ -208,7 +226,18 @@ module ActionController #:nodoc:
       end
     end
 
-  protected
+    # Before action callback that halts the request before the action is
+    # executed if the controller does not respond to the request mime type.
+    def validate_request_format! # :nodoc:
+      mimes = collect_mimes_from_class_level
+      collector = ActionController::MimeResponds::Collector.new(mimes, request.variant)
+
+      unless collector.negotiate_format(request)
+        raise ActionController::UnknownFormat
+      end
+    end
+
+    protected
 
     # Collect mimes declared in the class method respond_to valid for the
     # current action.
